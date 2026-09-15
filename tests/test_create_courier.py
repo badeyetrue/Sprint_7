@@ -11,17 +11,21 @@ class TestCreateCourier:
     @allure.title("Успешное создание курьера со всеми обязательными полями")
     def test_create_courier_success(self, generate_courier_data):
         payload = generate_courier_data()
+        
+        # Выполняем только целевое действие теста
         response = requests.post(Endpoints.CREATE_COURIER, json=payload)
         
         assert response.status_code == 201
         assert response.json() == {"ok": True}
-
-        # Ручное удаление, так как фикстура автоудаления тут не задействована
+        
+        # Логику удаления переносим из finally прямо сюда, но без if
         login_res = requests.post(Endpoints.LOGIN_COURIER, json={"login": payload["login"], "password": payload["password"]})
-        if login_res.status_code == 200:
-            requests.delete(f"{Endpoints.DELETE_COURIER}{login_res.json()['id']}")
+        login_res.raise_for_status()
+        
+        courier_id = login_res.json()["id"]
+        requests.delete(f"{Endpoints.DELETE_COURIER}{courier_id}")
 
-    @allure.title("Нельзя создать двух абсолютно одинаковых курьеров")
+     @allure.title("Нельзя создать двух абсолютно одинаковых курьеров")
     def test_cannot_create_duplicate_courier(self, create_and_delete_courier):
         duplicate_payload = create_and_delete_courier
         response = requests.post(Endpoints.CREATE_COURIER, json=duplicate_payload)

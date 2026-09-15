@@ -28,13 +28,9 @@ class TestLoginCourier:
 
         response = requests.post(Endpoints.LOGIN_COURIER, json=payload)
 
-        # Если не передан ПАРОЛЬ, бэкенд падает с 504. Если ЛОГИН — возвращает 400.
-        if missing_field == "password":
-            assert response.status_code == 504
-        else:
-            assert response.status_code == 400
-
-
+         # Теперь бэкенд должен возвращать 400 на любое пропущенное обязательное поле
+        assert response.status_code == 400
+        
     @allure.title("Ошибка авторизации с неверными учетными данными")
     @pytest.mark.parametrize("wrong_data", [
         {"login": "non_existent_user_login", "password": "correct_password"},

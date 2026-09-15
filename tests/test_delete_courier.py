@@ -11,9 +11,13 @@ class TestDeleteCourier:
     @allure.title("Успешное удаление существующего курьера")
     def test_delete_courier_success(self, generate_courier_data):
         payload = generate_courier_data()
-        requests.post(Endpoints.CREATE_COURIER, json=payload)
+        
+        # Создаем курьера и проверяем успешность (заменяем неявный шаг на контролируемый)
+        create_res = requests.post(Endpoints.CREATE_COURIER, json=payload)
+        create_res.raise_for_status()
         
         login_res = requests.post(Endpoints.LOGIN_COURIER, json={"login": payload["login"], "password": payload["password"]})
+        login_res.raise_for_status()
         courier_id = login_res.json()["id"]
         
         response = requests.delete(f"{Endpoints.DELETE_COURIER}{courier_id}")
@@ -24,7 +28,12 @@ class TestDeleteCourier:
     @allure.title("Ошибка при удалении курьера без передачи ID")
     def test_delete_courier_without_id(self):
         response = requests.delete(Endpoints.DELETE_COURIER)
+        
+        # Проверяем, что код ответа один из ожидаемых
         assert response.status_code in [400, 404]
+        
+        # Если пришел 400 — проверяем сообщение об ошибке. 
+        # Если пришел 404 (ручка не найдена) — это тоже валидно согласно assert выше, и текст ошибки мы не ждем.
         if response.status_code == 400:
             assert ErrorMessages.COURIER_MISSING_ID_DELETE in response.json().get("message", "")
 
