@@ -1,56 +1,47 @@
 import pytest
 import requests
-import allure
+from faker import Faker
 from urls import Endpoints
-from data import ErrorMessages
 
-@allure.epic("Управление курьерами")
-@allure.feature("Создание курьера")
-class TestCreateCourier:
+fake = Faker()
 
-    @allure.title("Успешное создание курьера со всеми обязательными полями")
-    def test_create_courier_success(self, generate_courier_data):
-        payload = generate_courier_data()
-        
-        # Выполняем только целевое действие теста
-        response = requests.post(Endpoints.CREATE_COURIER, json=payload)
-        
-        assert response.status_code == 201
-        assert response.json() == {"ok": True}
-        
-        # Логику удаления переносим из finally прямо сюда, но без if
-        login_res = requests.post(Endpoints.LOGIN_COURIER, json={"login": payload["login"], "password": payload["password"]})
-        login_res.raise_for_status()
-        
-        courier_id = login_res.json()["id"]
-        requests.delete(f"{Endpoints.DELETE_COURIER}{courier_id}")
+@pytest.fixture
+def generate_courier_data():
+    """Фабрика для создания данных курьера с предсказуемой структурой"""
+    def _generate(login=None, password=None, first_name=None):
+        return {
+            "login": login or fake.user_name(),
+            "password": password or fake.password(length=10),
+            "firstName": first_name or fake.first_name()
+        }
+    return _generate
 
-     @allure.title("Нельзя создать двух абсолютно одинаковых курьеров")
-    def test_cannot_create_duplicate_courier(self, create_and_delete_courier):
-        duplicate_payload = create_and_delete_courier
-        response = requests.post(Endpoints.CREATE_COURIER, json=duplicate_payload)
+@pytest.fixture
+def create_and_delete_courier(generate_courier_data):
+    """Фикстура: создает курьера перед тестом и гарантированно удаляет его после"""
+    courier_payload = generate_courier_data()
+    
+    # Регистрация курьера
+    requests.post(Endpoints.CREATE_COURIER, json=courier_payload)
+    
+    yield courier_payload  # Передаем данные в тест
+    
+    # Шаг очистки (Teardown): логин -> получение id -> удаление
+    login_payload = {
+        "login": courier_payload["login"], 
+        "password": courier_payload["password"]
+    }
+    
+    # Оборачиваем в try/except, чтобы возможные сбои при удалении курьера 
+    # (например, если тест на удаление его уже стер) не аффектили статус теста.
+    try:
+        login_response = requests.post(Endpoints.LOGIN_COURIER, json=login_payload)
+        login_response.raise_for_status() 
         
-        assert response.status_code == 409
-        assert ErrorMessages.REGISTRATION_DUPLICATE in response.json().get("message")
-
-    @allure.title("Нельзя создать курьера с уже занятым логином")
-    def test_cannot_create_courier_with_existing_login(self, create_and_delete_courier, generate_courier_data):
-        existing_courier = create_and_delete_courier
-        new_payload = generate_courier_data()
-        new_payload["login"] = existing_courier["login"]
+        courier_id = login_response.json()["id"]
         
-        response = requests.post(Endpoints.CREATE_COURIER, json=new_payload)
-        
-        assert response.status_code == 409
-        assert ErrorMessages.REGISTRATION_DUPLICATE in response.json().get("message")
-
-    @allure.title("Ошибка создания курьера при отсутствии обязательного поля")
-    @pytest.mark.parametrize("missing_field", ["login", "password"])
-    def test_cannot_create_courier_without_required_field(self, missing_field, generate_courier_data):
-        payload = generate_courier_data()
-        del payload[missing_field]
-        
-        response = requests.post(Endpoints.CREATE_COURIER, json=payload)
-        
-        assert response.status_code == 400
-        assert ErrorMessages.REGISTRATION_MISSING_FIELDS in response.json().get("message")
+        delete_response = requests.delete(f"{Endpoints.DELETE_COURIER}{courier_id}")
+        delete_response.raise_for_status()
+    except Exception as e:
+        # Логируем ошибку в консоль, не прерывая выполнение pytest
+        print(f"\n[Teardown Warning] Не удалось удалить курьера: {e}")

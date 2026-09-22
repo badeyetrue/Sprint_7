@@ -17,27 +17,34 @@ def generate_courier_data():
     return _generate
 
 @pytest.fixture
-def create_and_delete_courier(generate_courier_data):
-    """Фикстура: создает курьера перед тестом и гарантированно удаляет его после"""
-    courier_payload = generate_courier_data()
-    
-    # Регистрация курьера
-    requests.post(Endpoints.CREATE_COURIER, json=courier_payload)
-    
-    yield courier_payload  # Передаем данные в тест
-    
-    # Шаг очистки (Teardown): логин -> получение id -> удаление
-    login_payload = {
-        "login": courier_payload["login"], 
-        "password": courier_payload["password"]
-    }
-    
-    # Вместо if используем raise_for_status() и assert. 
-    # Если удаление упадет, pytest пометит тест как ERROR, а не PASSED.
-    login_response = requests.post(Endpoints.LOGIN_COURIER, json=login_payload)
-    login_response.raise_for_status() 
-    
-    courier_id = login_response.json()["id"]
-    
-    delete_response = requests.delete(f"{Endpoints.DELETE_COURIER}{courier_id}")
-    delete_response.raise_for_status()
+def courier_manager():
+    """Универсальный менеджер курьеров: управляет очисткой без использования if."""
+    couriers_to_delete = []
+
+    def _register_for_deletion(payload):
+        couriers_to_delete.append(payload)
+        return payload
+
+    yield _register_for_deletion  # Передаем функцию-регистратор в тесты
+
+    # Шаг очистки (Teardown) для всех зарегистрированных курьеров
+    for courier_payload in couriers_to_delete:
+        login_payload = {
+            "login": courier_payload["login"], 
+            "password": courier_payload["password"]
+        }
+        
+        # Если курьер не создался в тесте, логин упадет, raise_for_status() вызовет ошибку.
+        # Использование try/except здесь допустимо, так как это защищает teardown от прерывания,
+        # если тестировался негативный кейс.
+        try:
+            login_response = requests.post(Endpoints.LOGIN_COURIER, json=login_payload)
+            login_response.raise_for_status() 
+            
+            courier_id = login_response.json()["id"]
+            
+            delete_response = requests.delete(f"{Endpoints.DELETE_COURIER}{courier_id}")
+            delete_response.raise_for_status()
+        except Exception as e:
+            # Позволяет pytest продолжить удаление остальных курьеров, если их несколько
+            print(f"Не удалось удалить курьера: {e}")

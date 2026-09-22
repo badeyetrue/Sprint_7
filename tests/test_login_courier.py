@@ -9,11 +9,15 @@ from data import ErrorMessages
 class TestLoginCourier:
 
     @allure.title("Успешная авторизация курьера возвращает id")
-    def test_courier_login_success(self, create_and_delete_courier):
-        courier = create_and_delete_courier
-        payload = {"login": courier["login"], "password": courier["password"]}
+    def test_courier_login_success(self, generate_courier_data, courier_manager):
+        payload = generate_courier_data()
         
-        response = requests.post(Endpoints.LOGIN_COURIER, json=payload)
+        # Сначала создаем курьера, чтобы было под кем логиниться
+        requests.post(Endpoints.CREATE_COURIER, json=payload)
+        courier_manager(payload) # Гарантируем очистку
+        
+        login_payload = {"login": payload["login"], "password": payload["password"]}
+        response = requests.post(Endpoints.LOGIN_COURIER, json=login_payload)
         
         assert response.status_code == 200
         assert "id" in response.json()
@@ -21,29 +25,38 @@ class TestLoginCourier:
 
     @allure.title("Ошибка авторизации при отсутствии поля login или password")
     @pytest.mark.parametrize("missing_field", ["login", "password"])
-    def test_login_missing_required_field(self, missing_field, create_and_delete_courier):
-        courier = create_and_delete_courier
-        payload = {"login": courier["login"], "password": courier["password"]}
+    def test_login_missing_required_field(self, missing_field, generate_courier_data):
+        # Для проверки отсутствия полей создавать реального курьера в БД не требуется
+        payload = generate_courier_data()
         del payload[missing_field]
 
         response = requests.post(Endpoints.LOGIN_COURIER, json=payload)
 
-         # Теперь бэкенд должен возвращать 400 на любое пропущенное обязательное поле
         assert response.status_code == 400
+        assert ErrorMessages.LOGIN_MISSING_FIELDS in response.json().get("message", "")
         
-    @allure.title("Ошибка авторизации с неверными учетными данными")
-    @pytest.mark.parametrize("wrong_data", [
-        {"login": "non_existent_user_login", "password": "correct_password"},
-        {"login": "correct_login", "password": "wrong_password_1234"}
-    ])
-    def test_login_with_incorrect_credentials(self, wrong_data, create_and_delete_courier):
-        courier = create_and_delete_courier
-        if wrong_data["login"] == "correct_login":
-            payload = {"login": courier["login"], "password": wrong_data["password"]}
-        else:
-            payload = {"login": wrong_data["login"], "password": courier["password"]}
-            
+    @allure.title("Ошибка авторизации: система возвращает ошибку, если неправильно указать логин")
+    def test_login_with_incorrect_login(self):
+        # Запрос с полностью выдуманными данными, курьера создавать не нужно
+        payload = {"login": "completely_non_existent_login_123", "password": "any_password"}
+        
         response = requests.post(Endpoints.LOGIN_COURIER, json=payload)
+        
+        assert response.status_code == 404
+        assert ErrorMessages.LOGIN_NOT_FOUND in response.json().get("message")
+
+    @allure.title("Ошибка авторизации: система возвращает ошибку, если неправильно указать пароль")
+    def test_login_with_incorrect_password(self, generate_courier_data, courier_manager):
+        payload = generate_courier_data()
+        
+        # Создаем курьера в базе
+        requests.post(Endpoints.CREATE_COURIER, json=payload)
+        courier_manager(payload)
+        
+        # Логинимся с верным логином, но ломаем пароль
+        login_payload = {"login": payload["login"], "password": "wrong_password_999"}
+        
+        response = requests.post(Endpoints.LOGIN_COURIER, json=login_payload)
         
         assert response.status_code == 404
         assert ErrorMessages.LOGIN_NOT_FOUND in response.json().get("message")

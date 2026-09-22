@@ -9,10 +9,12 @@ from data import ErrorMessages
 class TestDeleteCourier:
 
     @allure.title("Успешное удаление существующего курьера")
-    def test_delete_courier_success(self, generate_courier_data):
+    def test_delete_courier_success(self, generate_courier_data, courier_manager):
         payload = generate_courier_data()
         
-        # Создаем курьера и проверяем успешность (заменяем неявный шаг на контролируемый)
+        # Регистрируем курьера в менеджере на случай, если тест упадет до вызова requests.delete
+        courier_manager(payload)
+        
         create_res = requests.post(Endpoints.CREATE_COURIER, json=payload)
         create_res.raise_for_status()
         
@@ -27,15 +29,12 @@ class TestDeleteCourier:
 
     @allure.title("Ошибка при удалении курьера без передачи ID")
     def test_delete_courier_without_id(self):
+        # Отправляем запрос без ID
         response = requests.delete(Endpoints.DELETE_COURIER)
         
-        # Проверяем, что код ответа один из ожидаемых
-        assert response.status_code in [400, 404]
-        
-        # Если пришел 400 — проверяем сообщение об ошибке. 
-        # Если пришел 404 (ручка не найдена) — это тоже валидно согласно assert выше, и текст ошибки мы не ждем.
-        if response.status_code == 400:
-            assert ErrorMessages.COURIER_MISSING_ID_DELETE in response.json().get("message", "")
+        # Строго проверяем контракт API без всяких условных операторов
+        assert response.status_code == 400
+        assert response.json().get("message") == ErrorMessages.COURIER_MISSING_ID_DELETE
 
     @allure.title("Ошибка при удалении курьера с несуществующим ID")
     def test_delete_courier_non_existent_id(self):
